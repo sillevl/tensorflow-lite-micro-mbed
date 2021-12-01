@@ -15,6 +15,7 @@ limitations under the License.
 #ifndef TENSORFLOW_LITE_KERNELS_INTERNAL_REFERENCE_FULLY_CONNECTED_H_
 #define TENSORFLOW_LITE_KERNELS_INTERNAL_REFERENCE_FULLY_CONNECTED_H_
 
+#include "ruy/profiler/instrumentation.h"  // from @ruy
 #include "tensorflow/lite/kernels/internal/common.h"
 #include "tensorflow/lite/kernels/internal/cppmath.h"
 #include "tensorflow/lite/kernels/internal/quantization_util.h"
@@ -31,7 +32,7 @@ inline void FullyConnected(
     float* output_data) {
   const float output_activation_min = params.float_activation_min;
   const float output_activation_max = params.float_activation_max;
-  // TODO(benoitjacob): This really should be:
+  // TODO(b/62193649): This really should be:
   //     const int batches = ArraySize(output_dims, 1);
   // but the current --variable_batch hack consists in overwriting the 3rd
   // dimension with the runtime batch size, as we don't keep track for each
@@ -76,7 +77,7 @@ inline void FullyConnected(
   TFLITE_DCHECK_GE(output_shape.DimensionsCount(), 1);
 
   TFLITE_DCHECK_LE(output_activation_min, output_activation_max);
-  // TODO(benoitjacob): This really should be:
+  // TODO(b/62193649): This really should be:
   //     const int batches = ArraySize(output_dims, 1);
   // but the current --variable_batch hack consists in overwriting the 3rd
   // dimension with the runtime batch size, as we don't keep track for each
@@ -123,7 +124,7 @@ inline void FullyConnected(
 
   TFLITE_DCHECK_LE(output_activation_min, output_activation_max);
   TFLITE_DCHECK_EQ(output_offset, 0);
-  // TODO(benoitjacob): This really should be:
+  // TODO(b/62193649): This really should be:
   //     const int batches = ArraySize(output_dims, 1);
   // but the current --variable_batch hack consists in overwriting the 3rd
   // dimension with the runtime batch size, as we don't keep track for each
@@ -176,7 +177,7 @@ inline void ShuffledFullyConnected(
   TFLITE_DCHECK_GE(input_shape.DimensionsCount(), 1);
   TFLITE_DCHECK_GE(weights_shape.DimensionsCount(), 2);
   TFLITE_DCHECK_GE(output_shape.DimensionsCount(), 1);
-  // TODO(benoitjacob): This really should be:
+  // TODO(b/62193649): This really should be:
   //     const int batches = ArraySize(output_dims, 1);
   // but the current --variable_batch hack consists in overwriting the 3rd
   // dimension with the runtime batch size, as we don't keep track for each
@@ -311,6 +312,29 @@ inline void ShuffledFullyConnected(
   } else {
     TFLITE_DCHECK(false);
     return;
+  }
+}
+
+inline void AddBiasToOutput(const FullyConnectedParams& params,
+                            const int64_t* bias_data,
+                            const RuntimeShape& output_shape,
+                            int16_t* output_data) {
+  ruy::profiler::ScopeLabel label("FullyConnected:AddBias_16x8_quant");
+  const int output_dim_count = output_shape.DimensionsCount();
+  const int batches = FlatSizeSkipDim(output_shape, output_dim_count - 1);
+  const int output_depth = output_shape.Dims(output_dim_count - 1);
+  int index = 0;
+  for (int b = 0; b < batches; ++b) {
+    for (int out_c = 0; out_c < output_depth; ++out_c) {
+      int32_t acc =
+          output_data[index] +
+          MultiplyByQuantizedMultiplier(
+              bias_data[out_c], params.output_multiplier, params.output_shift);
+      acc = std::max(acc, params.quantized_activation_min);
+      acc = std::min(acc, params.quantized_activation_max);
+      output_data[index] = static_cast<int16_t>(acc);
+      ++index;
+    }
   }
 }
 

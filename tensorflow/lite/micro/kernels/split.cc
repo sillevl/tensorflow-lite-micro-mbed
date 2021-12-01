@@ -18,6 +18,7 @@ limitations under the License.
 #include "tensorflow/lite/kernels/internal/tensor_ctypes.h"
 #include "tensorflow/lite/kernels/kernel_util.h"
 #include "tensorflow/lite/micro/kernels/kernel_util.h"
+#include "tensorflow/lite/micro/micro_error_reporter.h"
 
 namespace tflite {
 namespace ops {
@@ -69,6 +70,7 @@ TfLiteStatus SplitImpl(TfLiteContext* context, TfLiteNode* node,
 
 TfLiteStatus Prepare(TfLiteContext* context, TfLiteNode* node) {
   const TfLiteTensor* axis = GetInput(context, node, 0);
+  TF_LITE_ENSURE(context, axis != nullptr);
 
   // Dynamic output tensors are needed if axis tensor is not constant.
   // But Micro doesn't support dynamic memory allocation, so we only support
@@ -94,9 +96,6 @@ TfLiteStatus Eval(TfLiteContext* context, TfLiteNode* node) {
     case kTfLiteFloat32: {
       return SplitImpl<float>(context, node, input, axis_value);
     }
-    case kTfLiteUInt8: {
-      return SplitImpl<uint8_t>(context, node, input, axis_value);
-    }
     case kTfLiteInt8: {
       return SplitImpl<int8_t>(context, node, input, axis_value);
     }
@@ -107,11 +106,10 @@ TfLiteStatus Eval(TfLiteContext* context, TfLiteNode* node) {
       return SplitImpl<int32_t>(context, node, input, axis_value);
     }
     default:
-      TF_LITE_KERNEL_LOG(context, "Type %s currently not supported.",
-                         TfLiteTypeGetName(input->type));
+      MicroPrintf("Type %s currently not supported.",
+                  TfLiteTypeGetName(input->type));
       return kTfLiteError;
   }
-#undef TF_LITE_SPLIT
 
   return kTfLiteOk;
 }
